@@ -6,6 +6,7 @@ data/processed/
 
 results/heatmaps/
 results/anomaly_scores.csv
+results/score_timeseries.png
 
 checkpoints/
 *.pt
