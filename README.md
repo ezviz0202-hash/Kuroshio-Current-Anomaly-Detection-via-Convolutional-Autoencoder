@@ -105,19 +105,12 @@ This highlights a key limitation of reconstruction-based anomaly detection and m
 
 ---
 
-## Citation
+## Data Source
 
-If you use this code in published work, please cite:
+This project uses data from the Copernicus Marine Environment Monitoring Service (CMEMS):
 
-```
-Tong, C. (2025). Unsupervised Detection of Kuroshio Current Anomalous
-Structures Using Convolutional Autoencoders. [Preprint / Working Paper].
-```
+Lellouche, J.-M. et al. (2018). *Recent updates to the Copernicus Marine Service global ocean monitoring and forecasting system*. Ocean Science.
 
-And the CMEMS data product:
+## Notes
 
-```
-Lellouche, J.-M. et al. (2018). Recent updates to the Copernicus Marine
-Service global ocean monitoring and forecasting real-time 1/12° high-
-resolution system. Ocean Science, 14(5), 1093–1126.
-```
+This repository is part of an ongoing research project on unsupervised detection of ocean current anomalies using deep learning.
