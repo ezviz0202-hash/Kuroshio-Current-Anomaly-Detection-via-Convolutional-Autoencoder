@@ -1,0 +1,23 @@
+# Kuroshio Autoencoder — Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core ML
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Data / IO
+numpy>=1.24.0
+xarray>=2023.1.0
+netCDF4>=1.6.0
+scipy>=1.10.0
+
+# CMEMS download client
+copernicusmarine>=1.0.0
+
+# Visualisation
+matplotlib>=3.7.0
+pandas>=2.0.0
+
+# Optional (for notebook exploration)
+jupyterlab>=4.0.0
+ipywidgets>=8.0.0

@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+
+data/raw/
+data/processed/
+
+results/heatmaps/
+results/anomaly_scores.csv
+
+checkpoints/
+*.pt
+
+*.nc
+*.npy
+*.npz
