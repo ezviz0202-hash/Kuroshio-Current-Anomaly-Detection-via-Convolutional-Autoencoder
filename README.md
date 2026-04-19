@@ -56,14 +56,8 @@ Outputs:
 ### 5. Train
 
 ```bash
-# GPU (recommended)
 python train.py --epochs 100 --batch_size 16 --device cuda
-
-# CPU (slower but works)
-python train.py --epochs 60 --batch_size 8 --device cpu
 ```
-
-Best checkpoint saved to `checkpoints/best_model.pt`.
 
 ### 6. Evaluate
 
@@ -73,25 +67,39 @@ python evaluate.py --checkpoint checkpoints/best_model.pt \
 ```
 
 Outputs in `results/`:
-- `anomaly_scores.csv`       — per-frame date, score, binary flag
-- `score_timeseries.png`     — anomaly score vs. JMA LAM periods
-- `heatmaps/`                — spatial per-pixel error maps
+- `anomaly_scores.csv`
+- `score_timeseries.png`
+- `heatmaps/`
+
+---
+
+## Results Visualization
+
+### Anomaly Score Time Series
+
+![Anomaly Score](results/score_timeseries.png)
+
+### Spatial Error Heatmaps
+
+| Normal State | Anomalous State |
+|-------------|----------------|
+| ![](results/heatmaps/normal_example.png) | ![](results/heatmaps/anomaly_example.png) |
 
 ---
 
 ## Research Design
 
-| Component          | Detail                                              |
-|--------------------|-----------------------------------------------------|
-| Data source        | CMEMS GLORYS12v1 daily 1/12° reanalysis (public)   |
-| Domain             | 130°E–145°E, 25°N–40°N (Kuroshio corridor)         |
-| Input channels     | u, v surface velocity at 0 m depth                 |
-| Training period    | 2010–2016 (quiescent)                              |
-| Validation period  | 2017–2018                                          |
-| Test period        | 2019–2020 (includes documented 2019–2020 LAM event)|
-| Architecture       | 4-layer symmetric Conv AE, bottleneck ≈ 8×8×256   |
-| Anomaly criterion  | Masked MSE reconstruction error, 95th pct threshold|
-| Ground truth       | JMA large-amplitude meander catalog (used for evaluation) |
+| Component          | Detail |
+|--------------------|--------|
+| Data source        | CMEMS GLORYS12v1 daily 1/12° reanalysis |
+| Domain             | 130°E–145°E, 25°N–40°N |
+| Input channels     | u, v surface velocity |
+| Training period    | 2010–2016 (quiescent) |
+| Validation period  | 2017–2018 |
+| Test period        | 2019–2020 |
+| Architecture       | 4-layer symmetric Conv AE |
+| Anomaly criterion  | Masked MSE reconstruction error |
+| Ground truth       | JMA LAM catalog |
 
 ---
 
@@ -99,18 +107,10 @@ Outputs in `results/`:
 
 The autoencoder-based framework successfully captures anomalous ocean states, as reflected by elevated reconstruction error during periods of strong flow variability.
 
-However, the detected anomalies do not fully align with documented Kuroshio large-amplitude meander (LAM) events. Detection performance shows limited recall, indicating that the model captures general structural variability rather than LAM-specific dynamics.
-
-This highlights a key limitation of reconstruction-based anomaly detection and motivates future work toward more structured or interaction-aware modeling approaches.
+However, the detected anomalies do not fully align with documented Kuroshio large-amplitude meander (LAM) events.
 
 ---
 
-## Data Source
+## Citation
 
-This project uses data from the Copernicus Marine Environment Monitoring Service (CMEMS):
-
-Lellouche, J.-M. et al. (2018). *Recent updates to the Copernicus Marine Service global ocean monitoring and forecasting system*. Ocean Science.
-
-## Notes
-
-This repository is part of an ongoing research project on unsupervised detection of ocean current anomalies using deep learning.
+Tong, C. (2025)
