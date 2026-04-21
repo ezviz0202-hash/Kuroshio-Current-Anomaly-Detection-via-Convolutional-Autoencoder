@@ -80,13 +80,53 @@ def enforce_min_duration(flags: np.ndarray, min_duration: int = 5) -> np.ndarray
     return flags.astype(int)
 
 
-def compute_scores(model, data_tensor: torch.Tensor,
-                   score_mask: torch.Tensor,
-                   batch_size: int = 8, device="cpu"):
+def compute_frame_score(
+    error_map: np.ndarray,
+    score_mask: np.ndarray,
+    score_mode: str = "topk_mean",
+    topk_percent: float = 10.0,
+) -> float:
+    """
+    Compute a scalar anomaly score from one 2D error map.
 
+    score_mode:
+        - mean: mean error over ROI
+        - topk_mean: mean of top-k% ROI pixels
+        - max: max error in ROI
+    """
+    roi_vals = error_map[score_mask.astype(bool)]
+
+    if roi_vals.size == 0:
+        return 0.0
+
+    if score_mode == "mean":
+        return float(np.mean(roi_vals))
+
+    if score_mode == "max":
+        return float(np.max(roi_vals))
+
+    if score_mode == "topk_mean":
+        topk_percent = float(np.clip(topk_percent, 0.1, 100.0))
+        k = max(1, int(np.ceil(len(roi_vals) * topk_percent / 100.0)))
+        top_vals = np.partition(roi_vals, -k)[-k:]
+        return float(np.mean(top_vals))
+
+    raise ValueError(f"Unsupported score_mode: {score_mode}")
+
+
+def compute_scores(
+    model,
+    data_tensor: torch.Tensor,
+    score_mask: torch.Tensor,
+    batch_size: int = 8,
+    device: str = "cpu",
+    score_mode: str = "topk_mean",
+    topk_percent: float = 10.0,
+):
     ds = TensorDataset(data_tensor)
     dl = DataLoader(ds, batch_size=batch_size, shuffle=False)
 
+    score_mask_np = score_mask.cpu().numpy().astype(bool)
     scores_list, maps_list = [], []
 
     with torch.no_grad():
@@ -96,12 +136,18 @@ def compute_scores(model, data_tensor: torch.Tensor,
             emap = pixel_error_map(pred, batch)
 
             emap_np = emap.cpu().numpy()
-            masked = emap_np * score_mask.cpu().numpy()
 
-            n_valid = score_mask.sum().item()
-            score = masked.reshape(len(emap_np), -1).sum(axis=1) / max(n_valid, 1)
+            batch_scores = [
+                compute_frame_score(
+                    error_map=emap_np[i],
+                    score_mask=score_mask_np,
+                    score_mode=score_mode,
+                    topk_percent=topk_percent,
+                )
+                for i in range(len(emap_np))
+            ]
 
-            scores_list.append(score)
+            scores_list.append(np.asarray(batch_scores, dtype=np.float32))
             maps_list.append(emap_np)
 
     scores = np.concatenate(scores_list, axis=0)
@@ -109,15 +155,20 @@ def compute_scores(model, data_tensor: torch.Tensor,
     return scores, error_maps
 
 
-def calibrate_threshold(val_scores: np.ndarray, percentile: float = 95) -> float:
+def calibrate_threshold(val_scores: np.ndarray, percentile: float = 90.0) -> float:
     thresh = float(np.percentile(val_scores, percentile))
     print(f"Threshold (val {percentile:.0f}th pct): {thresh:.6f}")
     return thresh
 
 
-def plot_heatmap(error_map: np.ndarray, display_mask: np.ndarray,
-                 date_str: str, threshold: float,
-                 save_path: Path) -> None:
+def plot_heatmap(
+    error_map: np.ndarray,
+    display_mask: np.ndarray,
+    date_str: str,
+    threshold: float,
+    frame_score: float,
+    save_path: Path,
+) -> None:
     masked_map = np.where(display_mask, error_map, np.nan)
 
     fig, ax = plt.subplots(figsize=(8, 6))
@@ -137,13 +188,15 @@ def plot_heatmap(error_map: np.ndarray, display_mask: np.ndarray,
     x = np.linspace(FULL_LON_MIN, FULL_LON_MAX, w)
     y = np.linspace(FULL_LAT_MIN, FULL_LAT_MAX, h)
 
-    ax.contour(
-        x, y, masked_map,
-        levels=[threshold],
-        colors="cyan",
-        linewidths=1.2,
-        linestyles="--"
-    )
+    # Contour at scalar threshold is kept only for visual reference
+    if np.nanmax(masked_map) >= threshold:
+        ax.contour(
+            x, y, masked_map,
+            levels=[threshold],
+            colors="cyan",
+            linewidths=1.2,
+            linestyles="--"
+        )
 
     # ROI box
     ax.plot(
@@ -154,7 +207,11 @@ def plot_heatmap(error_map: np.ndarray, display_mask: np.ndarray,
         linestyle="-"
     )
 
-    ax.set_title(f"Kuroshio Anomaly Heatmap — {date_str}", fontsize=12)
+    ax.set_title(
+        f"Kuroshio Anomaly Heatmap — {date_str}\n"
+        f"Frame score = {frame_score:.4f}",
+        fontsize=12
+    )
     ax.set_xlabel("Longitude (°E)")
     ax.set_ylabel("Latitude (°N)")
     plt.tight_layout()
@@ -162,12 +219,16 @@ def plot_heatmap(error_map: np.ndarray, display_mask: np.ndarray,
     plt.close(fig)
 
 
-def plot_timeseries(dates: pd.DatetimeIndex,
-                    raw_scores: np.ndarray,
-                    smooth_scores: np.ndarray,
-                    threshold: float,
-                    detected_flags: np.ndarray,
-                    save_path: Path) -> None:
+def plot_timeseries(
+    dates: pd.DatetimeIndex,
+    raw_scores: np.ndarray,
+    smooth_scores: np.ndarray,
+    threshold: float,
+    detected_flags: np.ndarray,
+    save_path: Path,
+    score_mode: str,
+    topk_percent: float,
+) -> None:
     fig, ax = plt.subplots(figsize=(14, 4))
 
     ax.plot(dates, raw_scores, color="#9ecae1", linewidth=0.8, alpha=0.7, label="Raw score")
@@ -199,11 +260,17 @@ def plot_timeseries(dates: pd.DatetimeIndex,
 
     ax.set_xlabel("Date")
     ax.set_ylabel("Frame anomaly score  $(m/s)^2$")
+
+    title_suffix = score_mode
+    if score_mode == "topk_mean":
+        title_suffix += f" (top {topk_percent:.1f}%)"
+
     ax.set_title(
         "Kuroshio Current Anomaly Score — Test Period (2019–2020)\n"
-        "ROI-based scoring with temporal smoothing",
+        f"ROI-based scoring with temporal smoothing | mode={title_suffix}",
         fontsize=12
     )
+
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
     plt.setp(ax.xaxis.get_majorticklabels(), rotation=30, ha="right")
@@ -236,20 +303,32 @@ def evaluate(args):
     score_mask_np = build_roi_mask(h, w, land_mask)
     score_mask_t = torch.from_numpy(score_mask_np)
 
+    # Validation scores -> threshold calibration
     val_idx = splits["val"]
     x_val = torch.from_numpy(frames[val_idx])
     val_scores_raw, _ = compute_scores(
-        model, x_val, score_mask_t,
-        batch_size=args.batch_size, device=device
+        model=model,
+        data_tensor=x_val,
+        score_mask=score_mask_t,
+        batch_size=args.batch_size,
+        device=device,
+        score_mode=args.score_mode,
+        topk_percent=args.topk_percent,
     )
     val_scores = moving_average(val_scores_raw, window=args.smooth_window)
     threshold = calibrate_threshold(val_scores, args.percentile)
 
+    # Test scores
     test_idx = splits["test"]
     x_test = torch.from_numpy(frames[test_idx])
     test_scores_raw, error_maps = compute_scores(
-        model, x_test, score_mask_t,
-        batch_size=args.batch_size, device=device
+        model=model,
+        data_tensor=x_test,
+        score_mask=score_mask_t,
+        batch_size=args.batch_size,
+        device=device,
+        score_mode=args.score_mode,
+        topk_percent=args.topk_percent,
     )
     test_scores = moving_average(test_scores_raw, window=args.smooth_window)
 
@@ -265,6 +344,9 @@ def evaluate(args):
         "date": test_dates.strftime("%Y-%m-%d"),
         "raw_score": test_scores_raw,
         "smooth_score": test_scores,
+        "threshold": threshold,
+        "score_mode": args.score_mode,
+        "topk_percent": args.topk_percent,
         "is_anomaly_raw": detected_raw,
         "is_anomaly": detected,
     })
@@ -272,23 +354,33 @@ def evaluate(args):
     df.to_csv(csv_path, index=False)
     print(f"Saved anomaly scores → {csv_path}")
 
-    top_indices = np.argsort(test_scores)[-5:][::-1]
+    # Save top-N heatmaps ranked by smooth score
+    top_indices = np.argsort(test_scores)[-args.top_n:][::-1]
     for rank, idx in enumerate(top_indices, 1):
         date_str = test_dates[idx].strftime("%Y-%m-%d")
         save_path = HEATMAP_DIR / f"rank{rank:02d}_{date_str}.png"
-        plot_heatmap(error_maps[idx], land_mask, date_str, threshold, save_path)
+        plot_heatmap(
+            error_map=error_maps[idx],
+            display_mask=land_mask,
+            date_str=date_str,
+            threshold=threshold,
+            frame_score=test_scores[idx],
+            save_path=save_path,
+        )
         print(
             f"  Heatmap rank {rank}: {date_str}  "
             f"score={test_scores[idx]:.5f} → {save_path}"
         )
 
     plot_timeseries(
-        test_dates,
-        test_scores_raw,
-        test_scores,
-        threshold,
-        detected,
-        RESULTS_DIR / "score_timeseries.png"
+        dates=test_dates,
+        raw_scores=test_scores_raw,
+        smooth_scores=test_scores,
+        threshold=threshold,
+        detected_flags=detected,
+        save_path=RESULTS_DIR / "score_timeseries.png",
+        score_mode=args.score_mode,
+        topk_percent=args.topk_percent,
     )
 
     print("\n── Detection Statistics vs. JMA LAM ─────────────────────────")
@@ -300,27 +392,55 @@ def evaluate(args):
         )
 
     detected_bool = detected.astype(bool)
-    tp = (detected_bool & lam_mask).sum()
-    fp = (detected_bool & ~lam_mask).sum()
-    fn = (~detected_bool & lam_mask).sum()
+    tp = int((detected_bool & lam_mask).sum())
+    fp = int((detected_bool & ~lam_mask).sum())
+    fn = int((~detected_bool & lam_mask).sum())
+    tn = int((~detected_bool & ~lam_mask).sum())
 
     precision = tp / (tp + fp + 1e-9)
     recall = tp / (tp + fn + 1e-9)
     f1 = 2 * precision * recall / (precision + recall + 1e-9)
+    accuracy = (tp + tn) / max(tp + tn + fp + fn, 1)
 
-    print(f"  TP={tp}, FP={fp}, FN={fn}")
-    print(f"  Precision={precision:.3f}  Recall={recall:.3f}  F1={f1:.3f}")
+    print(f"  TP={tp}, FP={fp}, FN={fn}, TN={tn}")
+    print(f"  Precision={precision:.3f}")
+    print(f"  Recall={recall:.3f}")
+    print(f"  F1={f1:.3f}")
+    print(f"  Accuracy={accuracy:.3f}")
     print("\nEvaluation complete.")
 
 
 def parse_args():
     p = argparse.ArgumentParser(description="Evaluate Kuroshio Autoencoder")
+
     p.add_argument("--checkpoint", type=str, default="checkpoints/best_model.pt")
-    p.add_argument("--percentile", type=float, default=95.0)
+    p.add_argument("--percentile", type=float, default=90.0)
     p.add_argument("--batch_size", type=int, default=8)
     p.add_argument("--device", type=str, default="cpu")
     p.add_argument("--smooth_window", type=int, default=7)
     p.add_argument("--min_duration", type=int, default=5)
+
+    # New scoring options
+    p.add_argument(
+        "--score_mode",
+        type=str,
+        default="topk_mean",
+        choices=["mean", "topk_mean", "max"],
+        help="How to reduce ROI error map into a scalar frame score."
+    )
+    p.add_argument(
+        "--topk_percent",
+        type=float,
+        default=10.0,
+        help="Used only when score_mode=topk_mean."
+    )
+    p.add_argument(
+        "--top_n",
+        type=int,
+        default=5,
+        help="Number of highest-score heatmaps to save."
+    )
+
     return p.parse_args()
 
 
