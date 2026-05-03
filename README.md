@@ -14,7 +14,7 @@ This project develops an unsupervised deep-learning framework for detecting loca
   <img src="kii_timeseries_2019_2020.png" width="100%" alt="Kuroshio Instability Index time series during 2019-2020">
 </p>
 
-**Figure interpretation.**  
+
 The gray curve shows daily KII, and the blue curve shows the 7-day smoothed KII. The red dashed line is the validation-calibrated instability threshold. Green shaded intervals are detected persistent instability episodes. The orange shaded region is the simplified 2019-2020 LAM reference window used only for weak comparison in this prototype.
 
 The key observation is that KII is not continuously high throughout the mature reference period. Instead, it identifies several localized, persistent instability episodes, especially in 2019 before the simplified reference window. This suggests that the model is more sensitive to transition-stage or localized dynamical instability than to the mature LAM state itself.
@@ -27,7 +27,7 @@ The key observation is that KII is not continuously high throughout the mature r
   <img src="kii_zoom_lam_transition.png" width="100%" alt="Zoomed Kuroshio Instability Index around the 2019 transition stage">
 </p>
 
-**Figure interpretation.**  
+ 
 The zoomed view shows three clear high-KII episodes before 2019-08-01, which is the beginning of the simplified LAM reference window used in this prototype. These pre-reference episodes are important because they would be counted as false positives under a strict binary LAM-classification metric, but they may instead indicate physically meaningful localized instability or transition-stage behavior.
 
 ---
