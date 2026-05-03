@@ -11,7 +11,7 @@ This project develops an unsupervised deep-learning framework for detecting loca
 ## 1. Kuroshio Instability Index during 2019-2020
 
 <p align="center">
-  <img src="figures/kii_timeseries_2019_2020.png" width="100%" alt="Kuroshio Instability Index time series during 2019-2020">
+  <img src="kii_timeseries_2019_2020.png" width="100%" alt="Kuroshio Instability Index time series during 2019-2020">
 </p>
 
 **Figure interpretation.**  
@@ -24,7 +24,7 @@ The key observation is that KII is not continuously high throughout the mature r
 ## 2. Zoomed view around the 2019 transition-stage period
 
 <p align="center">
-  <img src="figures/kii_zoom_transition_2019.png" width="100%" alt="Zoomed Kuroshio Instability Index around the 2019 transition stage">
+  <img src="kii_zoom_transition_2019.png" width="100%" alt="Zoomed Kuroshio Instability Index around the 2019 transition stage">
 </p>
 
 **Figure interpretation.**  
