@@ -1,41 +1,140 @@
-# Kuroshio Current Anomaly Detection via Convolutional Autoencoder
+# Quickest Way to Run
 
-Unsupervised anomaly detection of Kuroshio Current dynamical structures using reconstruction error from a convolutional autoencoder trained on quiescent-period CMEMS reanalysis data, with evaluation of their temporal and spatial correspondence to documented large-amplitude meander (LAM) events.
+If you want the least manual setup, copy your existing `data/` and `checkpoints/` folders into this project folder, then run:
+
+```bash
+python run_kii.py
+```
+
+The script will check the processed data and checkpoint, run preprocessing if raw NetCDF files are present, and then run the Kuroshio Instability Index evaluation.
+
+On Windows, you can also double-click:
+
+```text
+run_kii_windows.bat
+```
+
+On macOS/Linux, you can run:
+
+```bash
+./run_kii_mac_linux.sh
+```
 
 ---
 
-## Key Result Example
+# Kuroshio Current Anomaly Detection + Kuroshio Instability Index
 
-### Temporal Evolution of Anomaly Score
+This project extends the original **Kuroshio Current Anomaly Detection via Convolutional Autoencoder** pipeline into a more physics-oriented diagnostic framework.
 
-The anomaly score increases during periods of strong dynamical variability and partially aligns with the documented LAM period.
+The original goal was binary comparison against JMA large-amplitude meander (LAM) periods. The new extension reframes localized reconstruction error as an unsupervised **Kuroshio Instability Index (KII)**: a daily index of how strongly the Kuroshio surface-current field deviates from the quiescent-period flow manifold learned by the autoencoder.
 
-![Time Series](results/score_timeseries.png)
+## Research Reframing
 
----
+Instead of asking only:
 
-### Spatial Localization of Anomalous Structures
+> Can the model classify JMA-defined LAM days?
 
-Reconstruction error maps highlight localized regions of strong deviation along the Kuroshio path.
+this version asks:
 
-![Heatmap](results/heatmaps/rank01_2019-07-14.png)
+> Can localized reconstruction error identify persistent Kuroshio dynamical-instability episodes, especially during pre-LAM or transition-stage periods?
 
----
+This is useful because mature LAM labels and localized flow instability are not identical. A partial mismatch with the JMA LAM catalog can therefore be interpreted as evidence that the model is detecting localized instability rather than simply reproducing a path-regime label.
+
+## Main Additions
+
+### 1. Kuroshio Instability Index
+
+`evaluate.py` now computes the following localized reconstruction-error statistics inside the Kuroshio ROI:
+
+| Index | Definition | Interpretation |
+|---|---|---|
+| `I_mean` | Mean ROI reconstruction error | Domain-averaged baseline |
+| `I_top10` | Mean of top 10% error pixels | Broad localized anomaly |
+| `I_top5` | Mean of top 5% error pixels | Recommended robust KII source |
+| `I_top1` | Mean of top 1% error pixels | Stronger localized anomaly |
+| `I_max` | Maximum ROI error | Most sensitive local signal |
+| `I_area95` | Fraction of ROI pixels above validation pixel threshold | Spatial extent of high-error anomaly |
+
+The default KII source is:
+
+```bash
+--kii_score I_top5
+```
+
+KII is standardized using validation-period statistics:
+
+```text
+KII(t) = (I_top5(t) - mean_validation(I_top5)) / std_validation(I_top5)
+```
+
+The threshold is calibrated from the smoothed validation-period KII percentile.
+
+### 2. Persistent Instability Episode Detection
+
+The script detects continuous periods where smoothed KII exceeds the validation-calibrated threshold for at least `--min_duration` days.
+
+Output:
+
+```text
+results/kii/instability_episodes.csv
+```
+
+Each episode includes:
+
+```text
+start_date, end_date, duration_days, peak_date, peak_KII, mean_KII,
+overlap_LAM_days, overlap_LAM_ratio,
+overlap_pre_LAM_days, overlap_pre_LAM_ratio
+```
+
+### 3. Pre-LAM Window Analysis
+
+The script summarizes KII behavior before documented LAM onset dates using 30-, 60-, and 90-day windows.
+
+Output:
+
+```text
+results/kii/pre_lam_window_stats.csv
+```
+
+This supports cautious phrasing such as **pre-LAM intensification signal** or **transition-stage instability**, without claiming deterministic prediction.
+
+### 4. Score-Method Comparison
+
+The script compares `I_mean`, `I_top10`, `I_top5`, `I_top1`, `I_max`, and `I_area95` against the JMA LAM period as a weak external reference.
+
+Outputs:
+
+```text
+results/kii/score_method_comparison.csv
+results/kii/score_method_comparison.png
+```
+
+### 5. KII Figures
+
+New plots:
+
+```text
+results/kii/kii_timeseries_2019_2020.png
+results/kii/kii_zoom_lam_transition.png
+results/heatmaps/kii_rank01_YYYY-MM-DD.png
+```
 
 ## Project Structure
 
-```
-kuroshio_autoencoder/
+```text
+kuroshio_kii_project/
 ├── download_data.py
 ├── preprocess.py
 ├── model.py
 ├── train.py
 ├── evaluate.py
+├── instability_index.py
+├── run_experiments.py
 ├── requirements.txt
-└── README.md
+├── README.md
+└── README_original.md
 ```
-
----
 
 ## Quick Start
 
@@ -45,69 +144,97 @@ kuroshio_autoencoder/
 pip install -r requirements.txt
 ```
 
-### 2. Register for CMEMS
+### 2. Download CMEMS data
 
 ```bash
 copernicusmarine login
-```
-
-### 3. Download data
-
-```bash
 python download_data.py
 ```
 
-### 4. Preprocess
+### 3. Preprocess
 
 ```bash
 python preprocess.py
 ```
 
-### 5. Train
+The updated preprocessing script saves:
+
+```text
+data/processed/kuroshio_frames.npy
+data/processed/land_mask.npy
+data/processed/dates.npy
+data/processed/lat.npy
+data/processed/lon.npy
+data/processed/split_indices.npz
+data/processed/norm_stats.npz
+```
+
+### 4. Train
 
 ```bash
 python train.py --epochs 100 --batch_size 16 --device cuda
 ```
 
-### 6. Evaluate
+### 5. Evaluate with KII enabled
+
+Recommended first run:
 
 ```bash
-python evaluate.py --checkpoint checkpoints/best_model.pt --device cpu
+python evaluate.py \
+  --checkpoint checkpoints/best_model.pt \
+  --device cpu \
+  --score_mode topk_mean \
+  --topk_percent 5 \
+  --percentile 90 \
+  --kii_score I_top5 \
+  --kii_percentile 95 \
+  --smooth_window 7 \
+  --min_duration 5
 ```
 
----
+More sensitive version:
 
-## Research Design
+```bash
+python evaluate.py \
+  --checkpoint checkpoints/best_model.pt \
+  --device cpu \
+  --score_mode max \
+  --percentile 85 \
+  --kii_score I_max \
+  --kii_percentile 95
+```
 
-| Component          | Detail |
-|--------------------|--------|
-| Data source        | CMEMS GLORYS12v1 |
-| Domain             | 130°E–145°E, 25°N–40°N |
-| Input channels     | u, v |
-| Training period    | 2010–2016 |
-| Validation period  | 2017–2018 |
-| Test period        | 2019–2020 |
-| Architecture       | Conv Autoencoder |
-| Anomaly criterion  | Reconstruction error (top-k / max within ROI) |
-| Ground truth       | JMA LAM catalog |
+### 6. Run score comparison experiments
 
----
+```bash
+python run_experiments.py
+```
 
-## Key Results
+## Important Outputs
 
-### Detection Performance
+```text
+results/anomaly_scores.csv
+results/score_timeseries.png
+results/heatmaps/kii_rank01_YYYY-MM-DD.png
 
-| Scoring Method | Precision | Recall | F1 Score |
-|----------------|----------|--------|----------|
-| Mean (baseline) | 0.51 | 0.02 | 0.07 |
-| Top-k (10%)     | 0.62 | 0.02 | 0.11 |
-| Top-k (5%)      | 0.88 | 0.09 | 0.16 |
-| **Max (proposed)** | **0.98** | **0.51** | **0.67** |
+results/kii/kii_daily_scores.csv
+results/kii/kii_timeseries_2019_2020.png
+results/kii/kii_zoom_lam_transition.png
+results/kii/instability_episodes.csv
+results/kii/pre_lam_window_stats.csv
+results/kii/score_method_comparison.csv
+results/kii/score_method_comparison.png
+results/kii/kii_metadata.json
+```
 
-The results demonstrate that localized anomaly scoring significantly improves detection performance.
+## Suggested Research Wording
 
----
+A suitable description for a professor update or proposal revision:
 
-### Key Insight
+> I am extending the project by reframing localized reconstruction error as an unsupervised Kuroshio Instability Index, rather than using it only as a binary classifier for JMA-defined large-amplitude meanders. The index is based on top-k reconstruction-error statistics, high-error area ratios, and persistent anomaly episodes. This reframing is motivated by the observation that localized reconstruction error may be more sensitive to transition-stage dynamical instability than to mature LAM states alone.
 
-The model detects dynamical instability (especially pre-LAM), but is less sensitive to mature LAM states, suggesting it captures instability rather than regime shifts.
+## Notes
+
+- The package does not include CMEMS data or trained checkpoints.
+- `README_original.md` is kept for reference.
+- The KII extension is intentionally implemented as an analysis layer after reconstruction-error generation, so it can be debugged without changing the autoencoder architecture.
